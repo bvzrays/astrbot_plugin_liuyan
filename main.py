@@ -31,6 +31,8 @@ class LiuyanPlugin(Star):
     @filter.command("留言")
     async def cmd_liuyan(self, event: AstrMessageEvent):
         message = event.message_str.strip()
+        # 去掉指令前缀（兼容 /留言 *留言 ！留言 #留言 等，以及可选的 :： 分隔）
+        message = self._strip_command_prefix(message, "留言")
         if not message:
             yield event.plain_result("用法：/留言 你的留言内容")
             return
@@ -291,6 +293,16 @@ class LiuyanPlugin(Star):
             return None
         m = re.search(r"([0-9a-fA-F]{8})", token)
         return m.group(1).lower() if m else None
+
+    def _strip_command_prefix(self, text: str, cmd: str) -> str:
+        try:
+            if not text:
+                return ""
+            # 允许形如：/留言 xxx, *留言 xxx, ！留言 xxx, #留言 xxx, 留言: xxx, 留言 xxx
+            pattern = rf"^[\\s*/#*!！]?{cmd}[\\s:：]*"
+            return re.sub(pattern, "", text, count=1).strip()
+        except Exception:
+            return text
 
     async def _send_direct_aiocqhttp(self, umo: str, text: str):
         """直接通过 aiocqhttp 协议端 API 发送文本兜底。
