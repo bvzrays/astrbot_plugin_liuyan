@@ -165,16 +165,19 @@ class LiuyanPlugin(Star):
         # 统一发送流程（回复）
         is_image = self._should_render_image()
         image_path = None
+        img_srcs = self._extract_image_sources(event)
         if is_image:
             try:
                 image_path = await self._render_reply_card(back_data)
                 chain = MessageChain().file_image(image_path)
+                for src in img_srcs:
+                    chain = chain.file_image(src)
             except Exception as e:
                 logger.error(f"回复卡片渲染失败，降级为文本: {e}")
                 is_image = False
-                chain = MessageChain().message(self._format_reply_text(back_data))
+                chain = self._build_reply_chain_with_images(back_data, img_srcs)
         else:
-            chain = MessageChain().message(self._format_reply_text(back_data))
+            chain = self._build_reply_chain_with_images(back_data, img_srcs)
 
         sent_any = False
         try:
@@ -187,10 +190,12 @@ class LiuyanPlugin(Star):
             try:
                 if is_image and image_path:
                     await self._send_direct_aiocqhttp_image(dest_umo, image_path)
-                    sent_any = True
+                    for src in img_srcs:
+                        await self._send_direct_aiocqhttp_image(dest_umo, src)
                 else:
-                    await self._send_direct_aiocqhttp(dest_umo, self._format_reply_text(back_data))
-                    sent_any = True
+                    before, after = self._format_reply_text_parts(back_data)
+                    await self._send_direct_aiocqhttp_combo(dest_umo, before, img_srcs, after)
+                sent_any = True
             except Exception as _:
                 pass
 
@@ -471,6 +476,27 @@ class LiuyanPlugin(Star):
             f"{line}\n"
             f"内容：\n{data.get('content','')}"
         )
+
+    def _format_reply_text_parts(self, data: dict) -> tuple[str, str]:
+        line = "================="
+        before = (
+            f"[留言回复] 工单 {data.get('ticket','')}\n"
+            f"{line}\n"
+            f"回复给：{data.get('sender_name','')} ({data.get('sender_id','')})\n"
+            f"{line}\n"
+            f"内容：\n{data.get('content','')}\n"
+        )
+        after = ""
+        return before, after
+
+    def _build_reply_chain_with_images(self, data: dict, image_sources: list[str]) -> MessageChain:
+        before, after = self._format_reply_text_parts(data)
+        chain = MessageChain().message(before)
+        for src in image_sources:
+            chain = chain.file_image(src)
+        if after:
+            chain = chain.message("\n" + after)
+        return chain
 
     def _format_liuyan_text_parts(self, data: dict) -> tuple[str, str]:
         line = "================="
