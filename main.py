@@ -86,10 +86,15 @@ class LiuyanPlugin(Star):
         # 提取原消息图片
         img_srcs = self._extract_image_sources(event)
         if is_image:
-            image_path = await self._render_leaving_card(origin_info)
-            chain = MessageChain().file_image(image_path)
-            for src in img_srcs:
-                chain = chain.file_image(src)
+            try:
+                image_path = await self._render_leaving_card(origin_info)
+                chain = MessageChain().file_image(image_path)
+                for src in img_srcs:
+                    chain = chain.file_image(src)
+            except Exception as e:
+                logger.error(f"留言卡片渲染失败，降级为文本: {e}")
+                is_image = False
+                chain = self._build_text_chain_with_images(origin_info, img_srcs)
         else:
             chain = self._build_text_chain_with_images(origin_info, img_srcs)
 
@@ -161,8 +166,13 @@ class LiuyanPlugin(Star):
         is_image = self._should_render_image()
         image_path = None
         if is_image:
-            image_path = await self._render_reply_card(back_data)
-            chain = MessageChain().file_image(image_path)
+            try:
+                image_path = await self._render_reply_card(back_data)
+                chain = MessageChain().file_image(image_path)
+            except Exception as e:
+                logger.error(f"回复卡片渲染失败，降级为文本: {e}")
+                is_image = False
+                chain = MessageChain().message(self._format_reply_text(back_data))
         else:
             chain = MessageChain().message(self._format_reply_text(back_data))
 
@@ -199,7 +209,9 @@ class LiuyanPlugin(Star):
     @filter.command("留言列表")
     async def cmd_list_tickets(self, event: AstrMessageEvent):
         dests = set(self._get_destination_umos())
-        if event.unified_msg_origin not in dests:
+        dev_ids = set((self.config.get("developer_user_ids", []) or [])) if self.config else set()
+        # 允许：在任一目标会话中，或开发者本人在任意会话中
+        if (event.unified_msg_origin not in dests) and (event.get_sender_id() not in dev_ids):
             yield event.plain_result("该指令仅能在留言接收会话中使用。")
             return
         async with self._lock:
