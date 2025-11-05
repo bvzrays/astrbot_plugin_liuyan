@@ -110,7 +110,7 @@ class LiuyanPlugin(Star):
             if chain is not None:
                 try:
                     ok = await self.context.send_message(umo, chain)
-                    if ok is not False:
+                    if ok is True:
                         sent_any = True
                         continue
                 except Exception:
@@ -190,7 +190,7 @@ class LiuyanPlugin(Star):
         if chain is not None:
             try:
                 ok = await self.context.send_message(dest_umo, chain)
-                if ok is not False:
+                if ok is True:
                     sent_any = True
             except Exception:
                 pass
