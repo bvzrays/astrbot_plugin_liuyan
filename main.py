@@ -80,9 +80,7 @@ class LiuyanPlugin(Star):
             for src in img_srcs:
                 chain = chain.file_image(src)
         else:
-            chain = MessageChain().message(self._format_liuyan_text(origin_info))
-            for src in img_srcs:
-                chain = chain.file_image(src)
+            chain = self._build_text_chain_with_images(origin_info, img_srcs)
 
         sent_any = False
         for umo in dest_umos:
@@ -97,10 +95,12 @@ class LiuyanPlugin(Star):
             try:
                 if is_image and image_path:
                     await self._send_direct_aiocqhttp_image(umo, image_path)
-                for src in img_srcs:
-                    await self._send_direct_aiocqhttp_image(umo, src)
-                if not is_image:
-                    await self._send_direct_aiocqhttp(umo, self._format_liuyan_text(origin_info))
+                    # 跟随原图
+                    for src in img_srcs:
+                        await self._send_direct_aiocqhttp_image(umo, src)
+                else:
+                    before, after = self._format_liuyan_text_parts(origin_info)
+                    await self._send_direct_aiocqhttp_combo(umo, before, img_srcs, after)
                 sent_any = True
             except Exception as _:
                 pass
@@ -325,6 +325,38 @@ class LiuyanPlugin(Star):
         except Exception as e:
             logger.error(f"直接调用 aiocqhttp 发送图片失败: {e}")
 
+    async def _send_direct_aiocqhttp_combo(self, umo: str, text_before: str, image_sources: list[str], text_after: str):
+        """通过 aiocqhttp 一次性发送 文本 + 多图片 + 文本。"""
+        try:
+            from pathlib import Path
+            parts = (umo or "").split(":", 2)
+            if len(parts) != 3:
+                return
+            platform, msg_type, sid = parts
+            if platform != "aiocqhttp":
+                return
+            pieces = [text_before]
+            for src in (image_sources or []):
+                if isinstance(src, str) and (src.startswith("http://") or src.startswith("https://")):
+                    pieces.append(f"[CQ:image,file={src}]")
+                else:
+                    uri = Path(src).resolve().as_uri()
+                    pieces.append(f"[CQ:image,file={uri}]")
+            if text_after:
+                pieces.append("\n" + text_after)
+            msg = "".join(pieces)
+
+            platform_inst = self.context.get_platform(filter.PlatformAdapterType.AIOCQHTTP)
+            if not platform_inst:
+                return
+            client = platform_inst.get_client()
+            if msg_type == "group":
+                await client.api.call_action('send_group_msg', group_id=int(sid), message=msg)
+            elif msg_type in {"friend", "private"}:
+                await client.api.call_action('send_private_msg', user_id=int(sid), message=msg)
+        except Exception as e:
+            logger.error(f"直接调用 aiocqhttp 组合发送失败: {e}")
+
     def _extract_image_sources(self, event: AstrMessageEvent):
         try:
             raw = event.message_obj.raw_message
@@ -399,6 +431,31 @@ class LiuyanPlugin(Star):
             f"{line}\n"
             f"内容：\n{data.get('content','')}"
         )
+
+    def _format_liuyan_text_parts(self, data: dict) -> tuple[str, str]:
+        line = "================="
+        before = (
+            f"[留言工单] {data.get('ticket','')}\n"
+            f"{line}\n"
+            f"来源平台：{data.get('platform','')}\n"
+            f"来源群号：{data.get('group_id','私聊')}\n"
+            f"来源用户：{data.get('sender_name','')} ({data.get('sender_id','')})\n"
+            f"{line}\n"
+            f"内容：\n{data.get('content','')}\n"
+        )
+        after = (
+            f"{line}\n"
+            f"使用 /回复 {data.get('ticket','')} 内容 进行回复"
+        )
+        return before, after
+
+    def _build_text_chain_with_images(self, data: dict, image_sources: list[str]) -> MessageChain:
+        before, after = self._format_liuyan_text_parts(data)
+        chain = MessageChain().message(before)
+        for src in image_sources:
+            chain = chain.file_image(src)
+        chain = chain.message("\n" + after)
+        return chain
 
     async def _render_leaving_card(self, data: dict) -> str:
         """将留言数据渲染为图片并返回本地路径。"""
