@@ -157,7 +157,7 @@ class LiuyanPlugin(Star):
         results: list[str] = []
         if not self.config:
             return results
-        platform = (self.config.get("platform_name", "") or "").strip() or "aiocqhttp"
+        platform = self._resolve_platform_name((self.config.get("platform_name", "") or "").strip())
         try:
             if bool(self.config.get("send_to_users", True)):
                 user_ids = self.config.get("developer_user_ids", []) or []
@@ -189,6 +189,26 @@ class LiuyanPlugin(Star):
         else:
             logger.info(f"留言插件目标会话: {dedup}")
         return dedup
+
+    def _resolve_platform_name(self, name: str) -> str:
+        """将配置的 platform_name 进行归一化；错误或留空时回退到 aiocqhttp。
+        - 允许的别名：napcat/onebot/ob11 -> aiocqhttp；default -> aiocqhttp
+        - qq_official、telegram、feishu、wecom、dingtalk 按原样返回
+        """
+        if not name:
+            return "aiocqhttp"
+        lower = name.lower()
+        alias_to_aiocqhttp = {"napcat", "onebot", "ob11", "aiocqhttp", "default"}
+        if lower in alias_to_aiocqhttp:
+            if lower == "default":
+                logger.warn("platform_name=default 非平台标识，已自动回退为 aiocqhttp（Napcat）")
+            return "aiocqhttp"
+        allowed = {"qq_official", "telegram", "feishu", "wecom", "dingtalk"}
+        if lower in allowed:
+            return lower
+        # 未知值时回退
+        logger.warn(f"未知的平台标识 '{name}'，已回退为 aiocqhttp")
+        return "aiocqhttp"
 
     def _ensure_data_dir(self) -> str:
         """确保 data 下的插件数据目录存在。"""
