@@ -102,22 +102,23 @@ class LiuyanPlugin(Star):
                 is_image = False
                 chain = self._build_text_chain_with_images(origin_info, img_srcs)
         else:
-            chain = self._build_text_chain_with_images(origin_info, img_srcs)
+            # 若包含图片，优先走协议端组合发送，避免 AstrBot 文本+图片+文本丢失尾部文本
+            chain = None
 
         sent_any = False
         for umo in dest_umos:
-            try:
-                ok = await self.context.send_message(umo, chain)
-                if ok is not False:
-                    sent_any = True
-                    continue
-            except Exception:
-                pass
+            if chain is not None:
+                try:
+                    ok = await self.context.send_message(umo, chain)
+                    if ok is not False:
+                        sent_any = True
+                        continue
+                except Exception:
+                    pass
             # AstrBot 发送失败，尝试协议端兜底
             try:
                 if is_image and image_path:
                     await self._send_direct_aiocqhttp_image(umo, image_path)
-                    # 跟随原图
                     for src in img_srcs:
                         await self._send_direct_aiocqhttp_image(umo, src)
                 else:
@@ -183,15 +184,16 @@ class LiuyanPlugin(Star):
                 is_image = False
                 chain = self._build_reply_chain_with_images(back_data, img_srcs)
         else:
-            chain = self._build_reply_chain_with_images(back_data, img_srcs)
+            chain = None
 
         sent_any = False
-        try:
-            ok = await self.context.send_message(dest_umo, chain)
-            if ok is not False:
-                sent_any = True
-        except Exception:
-            pass
+        if chain is not None:
+            try:
+                ok = await self.context.send_message(dest_umo, chain)
+                if ok is not False:
+                    sent_any = True
+            except Exception:
+                pass
         if not sent_any:
             try:
                 if is_image and image_path:
