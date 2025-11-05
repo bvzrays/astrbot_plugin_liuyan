@@ -72,11 +72,17 @@ class LiuyanPlugin(Star):
         # 统一发送流程，先走 AstrBot，再走协议端兜底，成功则不提示失败
         is_image = self._should_render_image()
         image_path = None
+        # 提取原消息图片
+        img_srcs = self._extract_image_sources(event)
         if is_image:
             image_path = await self._render_leaving_card(origin_info)
             chain = MessageChain().file_image(image_path)
+            for src in img_srcs:
+                chain = chain.file_image(src)
         else:
             chain = MessageChain().message(self._format_liuyan_text(origin_info))
+            for src in img_srcs:
+                chain = chain.file_image(src)
 
         sent_any = False
         for umo in dest_umos:
@@ -91,10 +97,11 @@ class LiuyanPlugin(Star):
             try:
                 if is_image and image_path:
                     await self._send_direct_aiocqhttp_image(umo, image_path)
-                    sent_any = True
-                else:
+                for src in img_srcs:
+                    await self._send_direct_aiocqhttp_image(umo, src)
+                if not is_image:
                     await self._send_direct_aiocqhttp(umo, self._format_liuyan_text(origin_info))
-                    sent_any = True
+                sent_any = True
             except Exception as _:
                 pass
 
@@ -301,8 +308,12 @@ class LiuyanPlugin(Star):
             platform, msg_type, sid = parts
             if platform != "aiocqhttp":
                 return
-            uri = Path(image_path).resolve().as_uri()  # file:///... 路径
-            cq = f"[CQ:image,file={uri}]"
+            # 支持 http/https 与本地文件
+            if isinstance(image_path, str) and (image_path.startswith("http://") or image_path.startswith("https://")):
+                cq = f"[CQ:image,file={image_path}]"
+            else:
+                uri = Path(image_path).resolve().as_uri()
+                cq = f"[CQ:image,file={uri}]"
             platform_inst = self.context.get_platform(filter.PlatformAdapterType.AIOCQHTTP)
             if not platform_inst:
                 return
@@ -313,6 +324,22 @@ class LiuyanPlugin(Star):
                 await client.api.call_action('send_private_msg', user_id=int(sid), message=cq)
         except Exception as e:
             logger.error(f"直接调用 aiocqhttp 发送图片失败: {e}")
+
+    def _extract_image_sources(self, event: AstrMessageEvent):
+        try:
+            raw = event.message_obj.raw_message
+            arr = raw.get('message') if isinstance(raw, dict) else None
+            urls = []
+            if isinstance(arr, list):
+                for seg in arr:
+                    if isinstance(seg, dict) and seg.get('type') == 'image':
+                        data = seg.get('data') or {}
+                        u = data.get('url') or data.get('file')
+                        if isinstance(u, str) and u:
+                            urls.append(u)
+            return urls
+        except Exception:
+            return []
 
     def _ensure_data_dir(self) -> str:
         """确保 data 下的插件数据目录存在。"""
@@ -350,7 +377,7 @@ class LiuyanPlugin(Star):
             return False
 
     def _format_liuyan_text(self, data: dict) -> str:
-        line = "────────────────────────────────────────"
+        line = "================="
         return (
             f"[留言工单] {data.get('ticket','')}\n"
             f"{line}\n"
@@ -364,7 +391,7 @@ class LiuyanPlugin(Star):
         )
 
     def _format_reply_text(self, data: dict) -> str:
-        line = "────────────────────────────────────────"
+        line = "================="
         return (
             f"[留言回复] 工单 {data.get('ticket','')}\n"
             f"{line}\n"
