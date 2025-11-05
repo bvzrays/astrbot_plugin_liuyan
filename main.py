@@ -150,26 +150,25 @@ class LiuyanPlugin(Star):
             yield event.plain_result("回复发送失败，请稍后再试。")
 
     def _get_destination_umos(self) -> list[str]:
-        """根据配置获取目标会话列表：
-        - 首选使用 platform_name + 开发者QQ/群号列表自动拼 UMO；
+        """根据配置获取目标会话列表（Napcat 环境固定为 aiocqhttp）：
+        - 使用开发者QQ/群号列表自动拼 UMO（aiocqhttp:friend:QQ / aiocqhttp:group:GID）；
         - 兼容单一 destination_umo；
         """
         results: list[str] = []
         if not self.config:
             return results
-        platform = (self.config.get("platform_name", "") or "").strip()
+        platform = "aiocqhttp"  # Napcat 固定平台
         try:
-            if platform:
-                if bool(self.config.get("send_to_users", True)):
-                    user_ids = self.config.get("developer_user_ids", []) or []
-                    for uid in user_ids:
-                        if isinstance(uid, str) and uid.strip():
-                            results.append(f"{platform}:friend:{uid.strip()}")
-                if bool(self.config.get("send_to_groups", True)):
-                    group_ids = self.config.get("developer_group_ids", []) or []
-                    for gid in group_ids:
-                        if isinstance(gid, str) and gid.strip():
-                            results.append(f"{platform}:group:{gid.strip()}")
+            if bool(self.config.get("send_to_users", True)):
+                user_ids = self.config.get("developer_user_ids", []) or []
+                for uid in user_ids:
+                    if isinstance(uid, str) and uid.strip():
+                        results.append(f"{platform}:friend:{uid.strip()}")
+            if bool(self.config.get("send_to_groups", True)):
+                group_ids = self.config.get("developer_group_ids", []) or []
+                for gid in group_ids:
+                    if isinstance(gid, str) and gid.strip():
+                        results.append(f"{platform}:group:{gid.strip()}")
         except Exception:
             pass
 
