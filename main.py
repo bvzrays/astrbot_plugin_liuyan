@@ -18,6 +18,7 @@ class LiuyanPlugin(Star):
         self._lock = asyncio.Lock()
         self._data_dir = self._ensure_data_dir()
         self._mapping_path = os.path.join(self._data_dir, "mappings.json")
+        self._list_page: dict[str, int] = {}
 
     async def initialize(self):
         """初始化时加载历史映射。"""
@@ -57,6 +58,7 @@ class LiuyanPlugin(Star):
             pass
 
         # 记录映射
+        img_srcs_for_store = self._extract_image_sources(event)
         async with self._lock:
             self._ticket_map[ticket] = {
                 "umo": event.unified_msg_origin,
@@ -65,7 +67,11 @@ class LiuyanPlugin(Star):
                 "group_id": group_id,
             "platform": platform_name,
                 "status": "open",
-                "created_at": int(time.time())
+                "created_at": int(time.time()),
+                "group_name": group_name,
+                "content": message,
+                "has_images": True if img_srcs_for_store else False,
+                "images": img_srcs_for_store[:3],
             }
         await self._save_mappings()
 
@@ -228,18 +234,74 @@ class LiuyanPlugin(Star):
             yield event.plain_result("暂无未处理工单。")
             return
         opens.sort(key=lambda x: x[1].get("created_at", 0), reverse=True)
+        # 分页
+        page_size = 5
+        curr_page = self._list_page.get(event.unified_msg_origin, 1)
+        total = len(opens)
+        max_page = max(1, (total + page_size - 1) // page_size)
+        curr_page = max(1, min(curr_page, max_page))
+        start = (curr_page - 1) * page_size
+        subset = opens[start:start + page_size]
+
         if bool(self.config.get("render_list_image", False)):
-            img = await self._render_ticket_list_image(opens[:8])
+            img = await self._render_ticket_list_image(subset)
             yield event.image_result(img)
         else:
             line = "================="
-            lines = ["未处理工单（最多显示20条）", line]
-            for i, (tid, mp) in enumerate(opens[:20], 1):
+            lines = [f"未处理工单 第{curr_page}/{max_page}页（每页5条）", line]
+            for i, (tid, mp) in enumerate(subset, start + 1):
                 gline = (mp.get('group_name','') + '（' + mp.get('group_id','') + '）') if mp.get('group_name') else (mp.get('group_id','私聊'))
+                ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mp.get('created_at', 0)))
+                preview = (mp.get('content','') or '')[:16]
+                if mp.get('has_images'):
+                    preview = (preview + ' [图片]') if preview else '[图片]'
                 lines.append(f"{i}. {tid}")
-                lines.append(f"来自：{mp.get('sender_name','')}({mp.get('sender_id','')}) | {gline}")
+                lines.append(f"来自：{mp.get('sender_name','')}({mp.get('sender_id','')}) | {gline} | {ts}")
+                lines.append(f"摘要：{preview}")
                 lines.append(line)
             yield event.plain_result("\n".join(lines))
+
+    @filter.command("留言页码")
+    async def cmd_list_page(self, event: AstrMessageEvent):
+        text = event.message_str.strip()
+        parts = text.split(maxsplit=1)
+        if len(parts) < 1:
+            yield event.plain_result("用法：/留言页码 页号")
+            return
+        try:
+            # 兼容中文数字等简单情况
+            nums = re.findall(r"\d+", text)
+            page = int(nums[0]) if nums else 1
+            self._list_page[event.unified_msg_origin] = max(1, page)
+            yield event.plain_result(f"已切换到第 {self._list_page[event.unified_msg_origin]} 页，发送 /留言列表 查看。")
+        except Exception:
+            yield event.plain_result("页码格式不正确。")
+
+    @filter.command("查看留言")
+    async def cmd_view_ticket(self, event: AstrMessageEvent):
+        text = event.message_str.strip()
+        m = re.search(r"([0-9a-fA-F]{8})", text)
+        if not m:
+            yield event.plain_result("用法：/查看留言 工单号")
+            return
+        ticket = m.group(1).lower()
+        async with self._lock:
+            mp = self._ticket_map.get(ticket)
+        if not mp:
+            yield event.plain_result("未找到该工单。")
+            return
+        gline = (mp.get('group_name','') + '（' + mp.get('group_id','') + '）') if mp.get('group_name') else (mp.get('group_id','私聊'))
+        ts = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mp.get('created_at', 0)))
+        line = "================="
+        detail = (
+            f"[留言详情] {ticket}\n{line}\n"
+            f"来自：{mp.get('sender_name','')}({mp.get('sender_id','')}) | {gline} | {ts}\n{line}\n"
+            f"内容：\n{mp.get('content','')}\n{line}"
+        )
+        chain = MessageChain().message(detail)
+        for src in (mp.get('images') or [])[:3]:
+            chain = chain.file_image(src)
+        yield chain
 
     def _get_destination_umos(self) -> list[str]:
         """根据配置获取目标会话列表：
