@@ -1,0 +1,39 @@
+{
+  "platform_name": {
+    "description": "消息平台名称（例如 aiocqhttp）",
+    "type": "string",
+    "hint": "用于从 QQ 号/群号拼出 UMO，典型值：aiocqhttp",
+    "obvious_hint": true
+  },
+  "send_to_users": {
+    "description": "是否向开发者个人(好友)列表分发",
+    "type": "bool",
+    "default": true
+  },
+  "send_to_groups": {
+    "description": "是否向开发群列表分发",
+    "type": "bool",
+    "default": true
+  },
+  "developer_user_ids": {
+    "description": "开发者QQ号列表（纯数字），例如：123456",
+    "type": "list",
+    "items": { "type": "string" }
+  },
+  "developer_group_ids": {
+    "description": "开发群号列表（纯数字），例如：987654321",
+    "type": "list",
+    "items": { "type": "string" }
+  },
+  "render_image": {
+    "description": "是否渲染为图片卡片（false=发送美化文本，true=发送图片）",
+    "type": "bool",
+    "hint": "默认 false，走文本风格；设为 true 使用图片卡片",
+    "default": false
+  },
+  "destination_umo": {
+    "description": "兼容项：单一 UMO（如 aiocqhttp:group:123456）。若填写则与以上列表共同生效",
+    "type": "string"
+  }
+}
+
