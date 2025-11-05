@@ -88,10 +88,19 @@ class LiuyanPlugin(Star):
             try:
                 chain = MessageChain().message(fallback)
                 for umo in dest_umos:
+                    sent = False
                     try:
-                        await self.context.send_message(umo, chain)
-                    except Exception as _:
+                        ok = await self.context.send_message(umo, chain)
+                        sent = sent or bool(ok)
+                    except Exception:
                         pass
+                    if not sent:
+                        # 直接调用 aiocqhttp 协议端 API 兜底
+                        try:
+                            await self._send_direct_aiocqhttp(umo, fallback)
+                            sent = True
+                        except Exception as _:
+                            pass
             except Exception as _:
                 pass
             yield event.plain_result("留言转发失败，请稍后再试或联系管理员。")
@@ -144,7 +153,16 @@ class LiuyanPlugin(Star):
             fallback = self._format_reply_text(back_data)
             try:
                 chain = MessageChain().message(fallback)
-                await self.context.send_message(dest_umo, chain)
+                try:
+                    ok = await self.context.send_message(dest_umo, chain)
+                    if not ok:
+                        raise RuntimeError("context.send_message False")
+                except Exception:
+                    # 直接调用 aiocqhttp 协议端 API 兜底
+                    try:
+                        await self._send_direct_aiocqhttp(dest_umo, fallback)
+                    except Exception as _:
+                        pass
             except Exception as _:
                 pass
             yield event.plain_result("回复发送失败，请稍后再试。")
@@ -212,6 +230,29 @@ class LiuyanPlugin(Star):
         # 未知值时回退
         logger.warn(f"未知的平台标识 '{name}'，已回退为 aiocqhttp")
         return "aiocqhttp"
+
+    async def _send_direct_aiocqhttp(self, umo: str, text: str):
+        """直接通过 aiocqhttp 协议端 API 发送文本兜底。
+        仅在 context.send_message 失败时调用。
+        支持的 UMO：aiocqhttp:group:<gid> / aiocqhttp:friend:<qq> / aiocqhttp:private:<qq>
+        """
+        try:
+            parts = (umo or "").split(":", 2)
+            if len(parts) != 3:
+                return
+            platform, msg_type, sid = parts
+            if platform != "aiocqhttp":
+                return
+            platform_inst = self.context.get_platform(filter.PlatformAdapterType.AIOCQHTTP)
+            if not platform_inst:
+                return
+            client = platform_inst.get_client()
+            if msg_type == "group":
+                await client.api.call_action('send_group_msg', group_id=int(sid), message=text)
+            elif msg_type in {"friend", "private"}:
+                await client.api.call_action('send_private_msg', user_id=int(sid), message=text)
+        except Exception as e:
+            logger.error(f"直接调用 aiocqhttp 发送失败: {e}")
 
     def _ensure_data_dir(self) -> str:
         """确保 data 下的插件数据目录存在。"""
