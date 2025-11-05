@@ -5,6 +5,8 @@ import os
 import json
 import uuid
 import asyncio
+import re
+import time
 
 
 @register("astrbot_plugin_liuyan", "bvzrays", "留言插件：/留言 与 /回复", "1.0.0")
@@ -52,6 +54,8 @@ class LiuyanPlugin(Star):
                 "sender_name": sender_name,
                 "group_id": group_id,
                 "platform": platform_name,
+                "status": "open",
+                "created_at": int(time.time())
             }
         await self._save_mappings()
 
@@ -65,44 +69,38 @@ class LiuyanPlugin(Star):
             "content": message,
         }
 
-        try:
-            sent_any = False
-            if self._should_render_image():
-                img_path = await self._render_leaving_card(origin_info)
-                chain = MessageChain().file_image(img_path)
-            else:
-                chain = MessageChain().message(self._format_liuyan_text(origin_info))
-            for umo in dest_umos:
-                try:
-                    ok = await self.context.send_message(umo, chain)
-                    sent_any = sent_any or bool(ok)
-                except Exception as _:
-                    continue
-            if not sent_any:
-                raise RuntimeError("所有目标发送失败或未找到对应平台")
-            yield event.plain_result(f"留言已提交，工单号：{ticket}")
-        except Exception as e:
-            logger.error(f"转发留言失败: {e}")
-            # 降级为纯文本
-            fallback = self._format_liuyan_text(origin_info)
+        # 统一发送流程，先走 AstrBot，再走协议端兜底，成功则不提示失败
+        is_image = self._should_render_image()
+        image_path = None
+        if is_image:
+            image_path = await self._render_leaving_card(origin_info)
+            chain = MessageChain().file_image(image_path)
+        else:
+            chain = MessageChain().message(self._format_liuyan_text(origin_info))
+
+        sent_any = False
+        for umo in dest_umos:
             try:
-                chain = MessageChain().message(fallback)
-                for umo in dest_umos:
-                    sent = False
-                    try:
-                        ok = await self.context.send_message(umo, chain)
-                        sent = sent or bool(ok)
-                    except Exception:
-                        pass
-                    if not sent:
-                        # 直接调用 aiocqhttp 协议端 API 兜底
-                        try:
-                            await self._send_direct_aiocqhttp(umo, fallback)
-                            sent = True
-                        except Exception as _:
-                            pass
+                ok = await self.context.send_message(umo, chain)
+                if ok is not False:
+                    sent_any = True
+                    continue
+            except Exception:
+                pass
+            # AstrBot 发送失败，尝试协议端兜底
+            try:
+                if is_image and image_path:
+                    await self._send_direct_aiocqhttp_image(umo, image_path)
+                    sent_any = True
+                else:
+                    await self._send_direct_aiocqhttp(umo, self._format_liuyan_text(origin_info))
+                    sent_any = True
             except Exception as _:
                 pass
+
+        if sent_any:
+            yield event.plain_result(f"留言已提交，工单号：{ticket}")
+        else:
             yield event.plain_result("留言转发失败，请稍后再试或联系管理员。")
 
     # /回复 <工单号> <内容>
@@ -118,7 +116,11 @@ class LiuyanPlugin(Star):
             yield event.plain_result("用法：/回复 工单号 内容")
             return
 
-        ticket, reply_text = parts[0], parts[1].strip()
+        ticket_raw, reply_text = parts[0], parts[1].strip()
+        ticket = self._normalize_ticket(ticket_raw)
+        if not ticket:
+            yield event.plain_result("工单号格式不正确，请检查后再试。")
+            return
         async with self._lock:
             mapping = self._ticket_map.get(ticket)
 
@@ -137,35 +139,64 @@ class LiuyanPlugin(Star):
             "content": reply_text,
         }
 
+        # 统一发送流程（回复）
+        is_image = self._should_render_image()
+        image_path = None
+        if is_image:
+            image_path = await self._render_reply_card(back_data)
+            chain = MessageChain().file_image(image_path)
+        else:
+            chain = MessageChain().message(self._format_reply_text(back_data))
+
+        sent_any = False
         try:
-            if self._should_render_image():
-                img_path = await self._render_reply_card(back_data)
-                chain = MessageChain().file_image(img_path)
-            else:
-                chain = MessageChain().message(self._format_reply_text(back_data))
             ok = await self.context.send_message(dest_umo, chain)
-            if ok is False:
-                raise RuntimeError("send_message 返回 False，未找到对应平台")
-            yield event.plain_result("已回送给留言用户。")
-        except Exception as e:
-            logger.error(f"回复回送失败: {e}")
-            # 降级为纯文本
-            fallback = self._format_reply_text(back_data)
+            if ok is not False:
+                sent_any = True
+        except Exception:
+            pass
+        if not sent_any:
             try:
-                chain = MessageChain().message(fallback)
-                try:
-                    ok = await self.context.send_message(dest_umo, chain)
-                    if not ok:
-                        raise RuntimeError("context.send_message False")
-                except Exception:
-                    # 直接调用 aiocqhttp 协议端 API 兜底
-                    try:
-                        await self._send_direct_aiocqhttp(dest_umo, fallback)
-                    except Exception as _:
-                        pass
+                if is_image and image_path:
+                    await self._send_direct_aiocqhttp_image(dest_umo, image_path)
+                    sent_any = True
+                else:
+                    await self._send_direct_aiocqhttp(dest_umo, self._format_reply_text(back_data))
+                    sent_any = True
             except Exception as _:
                 pass
+
+        if sent_any:
+            async with self._lock:
+                mp = self._ticket_map.get(ticket)
+                if mp:
+                    mp["status"] = "closed"
+                    mp["closed_at"] = int(time.time())
+                    mp["last_reply"] = reply_text
+            await self._save_mappings()
+            yield event.plain_result("已回送给留言用户。")
+        else:
             yield event.plain_result("回复发送失败，请稍后再试。")
+
+    @filter.command("留言列表")
+    async def cmd_list_tickets(self, event: AstrMessageEvent):
+        dests = set(self._get_destination_umos())
+        if event.unified_msg_origin not in dests:
+            yield event.plain_result("该指令仅能在留言接收会话中使用。")
+            return
+        async with self._lock:
+            opens = [
+                (k, v) for k, v in self._ticket_map.items()
+                if isinstance(v, dict) and v.get("status", "open") == "open"
+            ]
+        if not opens:
+            yield event.plain_result("暂无未处理工单。")
+            return
+        opens.sort(key=lambda x: x[1].get("created_at", 0), reverse=True)
+        lines = ["未处理工单列表（最多显示20条）："]
+        for i, (tid, mp) in enumerate(opens[:20], 1):
+            lines.append(f"{i}. {tid} | {mp.get('sender_name','')}({mp.get('sender_id','')}) | 群: {mp.get('group_id','私聊')}")
+        yield event.plain_result("\n".join(lines))
 
     def _get_destination_umos(self) -> list[str]:
         """根据配置获取目标会话列表：
@@ -231,6 +262,12 @@ class LiuyanPlugin(Star):
         logger.warn(f"未知的平台标识 '{name}'，已回退为 aiocqhttp")
         return "aiocqhttp"
 
+    def _normalize_ticket(self, token: str) -> str | None:
+        if not token:
+            return None
+        m = re.search(r"([0-9a-fA-F]{8})", token)
+        return m.group(1).lower() if m else None
+
     async def _send_direct_aiocqhttp(self, umo: str, text: str):
         """直接通过 aiocqhttp 协议端 API 发送文本兜底。
         仅在 context.send_message 失败时调用。
@@ -253,6 +290,29 @@ class LiuyanPlugin(Star):
                 await client.api.call_action('send_private_msg', user_id=int(sid), message=text)
         except Exception as e:
             logger.error(f"直接调用 aiocqhttp 发送失败: {e}")
+
+    async def _send_direct_aiocqhttp_image(self, umo: str, image_path: str):
+        """通过 aiocqhttp 直接发送图片（CQ 码）。"""
+        try:
+            from pathlib import Path
+            parts = (umo or "").split(":", 2)
+            if len(parts) != 3:
+                return
+            platform, msg_type, sid = parts
+            if platform != "aiocqhttp":
+                return
+            uri = Path(image_path).resolve().as_uri()  # file:///... 路径
+            cq = f"[CQ:image,file={uri}]"
+            platform_inst = self.context.get_platform(filter.PlatformAdapterType.AIOCQHTTP)
+            if not platform_inst:
+                return
+            client = platform_inst.get_client()
+            if msg_type == "group":
+                await client.api.call_action('send_group_msg', group_id=int(sid), message=cq)
+            elif msg_type in {"friend", "private"}:
+                await client.api.call_action('send_private_msg', user_id=int(sid), message=cq)
+        except Exception as e:
+            logger.error(f"直接调用 aiocqhttp 发送图片失败: {e}")
 
     def _ensure_data_dir(self) -> str:
         """确保 data 下的插件数据目录存在。"""
