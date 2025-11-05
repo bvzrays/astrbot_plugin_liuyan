@@ -163,7 +163,10 @@ class LiuyanPlugin(Star):
                 user_ids = self.config.get("developer_user_ids", []) or []
                 for uid in user_ids:
                     if isinstance(uid, str) and uid.strip():
-                        results.append(f"{platform}:friend:{uid.strip()}")
+                        uid_s = uid.strip()
+                        # 同时兼容 friend 与 private 两种标识
+                        results.append(f"{platform}:friend:{uid_s}")
+                        results.append(f"{platform}:private:{uid_s}")
             if bool(self.config.get("send_to_groups", True)):
                 group_ids = self.config.get("developer_group_ids", []) or []
                 for gid in group_ids:
