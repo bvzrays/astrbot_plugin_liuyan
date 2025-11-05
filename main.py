@@ -150,14 +150,14 @@ class LiuyanPlugin(Star):
             yield event.plain_result("回复发送失败，请稍后再试。")
 
     def _get_destination_umos(self) -> list[str]:
-        """根据配置获取目标会话列表（Napcat 环境固定为 aiocqhttp）：
-        - 使用开发者QQ/群号列表自动拼 UMO（aiocqhttp:friend:QQ / aiocqhttp:group:GID）；
+        """根据配置获取目标会话列表：
+        - 使用开发者QQ/群号列表自动拼 UMO（{platform}:friend:QQ / {platform}:group:GID）；
         - 兼容单一 destination_umo；
         """
         results: list[str] = []
         if not self.config:
             return results
-        platform = "aiocqhttp"  # Napcat 固定平台
+        platform = (self.config.get("platform_name", "") or "").strip() or "aiocqhttp"
         try:
             if bool(self.config.get("send_to_users", True)):
                 user_ids = self.config.get("developer_user_ids", []) or []
@@ -184,6 +184,10 @@ class LiuyanPlugin(Star):
             if x not in seen:
                 seen.add(x)
                 dedup.append(x)
+        if not dedup:
+            logger.warn("留言插件未得到任何目标会话（请检查 platform_name / developer_user_ids / developer_group_ids / destination_umo 配置）")
+        else:
+            logger.info(f"留言插件目标会话: {dedup}")
         return dedup
 
     def _ensure_data_dir(self) -> str:

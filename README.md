@@ -22,8 +22,6 @@ WebUI → 插件管理 → 留言插件 → 配置。
 
 支持的配置项（见 `_conf_schema.json`）：
 
-- platform_name（string，推荐）
-  - 例如：`aiocqhttp`
 - render_image（bool，默认 false）
   - false：发送“美化文本”
   - true：发送“图片卡片”（HTML 渲染）
@@ -31,6 +29,8 @@ WebUI → 插件管理 → 留言插件 → 配置。
   - 是否向开发者个人(好友)列表分发
 - send_to_groups（bool，默认 true）
   - 是否向开发群列表分发
+- platform_name（string，可选，默认 aiocqhttp）
+  - 目标平台适配器标识；Napcat 请选择 `aiocqhttp`
 - developer_user_ids（list[string]）
   - 开发者QQ号列表（纯数字），如 `123456`
 - developer_group_ids（list[string]）
@@ -41,7 +41,7 @@ WebUI → 插件管理 → 留言插件 → 配置。
 - target_type（string，可选，group|friend）
 - target_id（string，可选）
 
-推荐使用 `platform_name + developer_*_ids`；插件会自动拼出 UMO 并分发。也可额外填写 `destination_umo` 以兼容旧配置。
+插件会基于 `platform_name`（默认 `aiocqhttp`）与 `developer_*_ids` 自动拼出 UMO 并分发。Napcat 场景下请保持 `platform_name=aiocqhttp`。也可额外填写 `destination_umo` 以兼容旧配置。
 
 ## 指令
 

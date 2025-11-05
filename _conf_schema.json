@@ -9,6 +9,12 @@
     "type": "bool",
     "default": true
   },
+  "platform_name": {
+    "description": "目标平台适配器标识（用于从 QQ/群号拼接 UMO）。Napcat 请选择 aiocqhttp。",
+    "type": "string",
+    "hint": "常见取值：aiocqhttp(Napcat/Lagrange OneBot)、qq_official、telegram、feishu、wecom、dingtalk。留空默认 aiocqhttp。",
+    "obvious_hint": true
+  },
   "developer_user_ids": {
     "description": "开发者QQ号列表（纯数字），例如：123456",
     "type": "list",
