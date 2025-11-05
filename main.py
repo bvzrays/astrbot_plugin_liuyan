@@ -487,7 +487,7 @@ class LiuyanPlugin(Star):
     async def _render_leaving_card(self, data: dict) -> str:
         """将留言数据渲染为图片并返回本地路径。"""
         tmpl = self._liuyan_template()
-        path = await self.html_render(tmpl, data, return_url=False, options={
+        path = await self.html_render(tmpl, data, return_url=True, options={
             "type": "png",
             "omit_background": True,
             "full_page": True
@@ -497,7 +497,7 @@ class LiuyanPlugin(Star):
     async def _render_reply_card(self, data: dict) -> str:
         """将回复数据渲染为图片并返回本地路径。"""
         tmpl = self._reply_template()
-        path = await self.html_render(tmpl, data, return_url=False, options={
+        path = await self.html_render(tmpl, data, return_url=True, options={
             "type": "png",
             "omit_background": True,
             "full_page": True
