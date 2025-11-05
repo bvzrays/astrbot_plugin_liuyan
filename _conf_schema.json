@@ -31,6 +31,11 @@
     "hint": "默认 false，走文本风格；设为 true 使用图片卡片",
     "default": false
   },
+  "render_list_image": {
+    "description": "/留言列表 是否使用图片卡片渲染（false=文本列表，true=图片卡片栅格）",
+    "type": "bool",
+    "default": false
+  },
   "destination_umo": {
     "description": "兼容项：单一 UMO（如 aiocqhttp:group:123456）。若填写则与以上列表共同生效",
     "type": "string"

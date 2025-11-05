@@ -33,6 +33,7 @@ WebUI → 插件管理 → 留言插件 → 配置。
   - 目标平台适配器标识；Napcat 请选择 `aiocqhttp`
 - developer_user_ids（list[string]）
   - 开发者QQ号列表（纯数字），如 `123456`
+  - 私聊会话在部分适配器下既可写为 `friend` 也可写为 `private`，插件会自动同时尝试两种格式
 - developer_group_ids（list[string]）
   - 开发群号列表（纯数字），如 `987654321`
 - destination_umo（string，兼容单目标，可选）

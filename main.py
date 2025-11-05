@@ -209,10 +209,18 @@ class LiuyanPlugin(Star):
             yield event.plain_result("暂无未处理工单。")
             return
         opens.sort(key=lambda x: x[1].get("created_at", 0), reverse=True)
-        lines = ["未处理工单列表（最多显示20条）："]
-        for i, (tid, mp) in enumerate(opens[:20], 1):
-            lines.append(f"{i}. {tid} | {mp.get('sender_name','')}({mp.get('sender_id','')}) | 群: {mp.get('group_id','私聊')}")
-        yield event.plain_result("\n".join(lines))
+        if bool(self.config.get("render_list_image", False)):
+            img = await self._render_ticket_list_image(opens[:8])
+            yield event.image_result(img)
+        else:
+            line = "================="
+            lines = ["未处理工单（最多显示20条）", line]
+            for i, (tid, mp) in enumerate(opens[:20], 1):
+                gline = (mp.get('group_name','') + '（' + mp.get('group_id','') + '）') if mp.get('group_name') else (mp.get('group_id','私聊'))
+                lines.append(f"{i}. {tid}")
+                lines.append(f"来自：{mp.get('sender_name','')}({mp.get('sender_id','')}) | {gline}")
+                lines.append(line)
+            yield event.plain_result("\n".join(lines))
 
     def _get_destination_umos(self) -> list[str]:
         """根据配置获取目标会话列表：
@@ -422,7 +430,7 @@ class LiuyanPlugin(Star):
         return (
             f"[留言工单] {data.get('ticket','')}\n"
             f"{line}\n"
-            f"来源群：{data.get('group_id','私聊')} {('('+data.get('group_name','')+')') if data.get('group_name') else ''}\n"
+            f"来源群：{(data.get('group_name') + '（' + data.get('group_id') + '）') if data.get('group_name') else data.get('group_id','私聊')}\n"
             f"来源用户：{data.get('sender_name','')} ({data.get('sender_id','')})\n"
             f"{line}\n"
             f"内容：\n{data.get('content','')}\n"
@@ -445,7 +453,7 @@ class LiuyanPlugin(Star):
         before = (
             f"[留言工单] {data.get('ticket','')}\n"
             f"{line}\n"
-            f"来源群：{data.get('group_id','私聊')} {('('+data.get('group_name','')+')') if data.get('group_name') else ''}\n"
+            f"来源群：{(data.get('group_name') + '（' + data.get('group_id') + '）') if data.get('group_name') else data.get('group_id','私聊')}\n"
             f"来源用户：{data.get('sender_name','')} ({data.get('sender_id','')})\n"
             f"{line}\n"
             f"内容：\n{data.get('content','')}\n"
@@ -494,7 +502,7 @@ class LiuyanPlugin(Star):
   </div>
 
   <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; font-size: 13px; color:#374151">
-    <div><span style="color:#6b7280">来源群：</span>{{ group_id }} {% if group_name %}({{ group_name }}){% endif %}</div>
+    <div><span style="color:#6b7280">来源群：</span>{% if group_name %}{{ group_name }}（{{ group_id }}）{% else %}{{ group_id }}{% endif %}</div>
     <div><span style="color:#6b7280">来源用户：</span>{{ sender_name }}</div>
     <div><span style="color:#6b7280">来源QQ：</span>{{ sender_id }}</div>
   </div>
@@ -533,5 +541,65 @@ class LiuyanPlugin(Star):
     <span>此回复将回送至原留言会话</span>
   </div>
 </div>
+            """
+        )
+
+    async def _render_ticket_list_image(self, items: list[tuple[str, dict]]) -> str:
+        """渲染未处理工单列表为图片。"""
+        tmpl = self._list_template()
+        # 组装显示数据
+        data_items = []
+        for tid, mp in items:
+            data_items.append({
+                "title": f"工单 {tid}",
+                "version": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(mp.get("created_at", 0))),
+                "behavior": f"来自 {mp.get('sender_name','')}({mp.get('sender_id','')})",
+                "desc": f"会话：{(mp.get('group_name','') + '（' + mp.get('group_id','') + '）') if mp.get('group_name') else (mp.get('group_id','私聊'))}",
+            })
+        path = await self.html_render(tmpl, {"items": data_items}, return_url=False, options={
+            "type": "png",
+            "omit_background": False,
+            "full_page": True
+        })
+        return path
+
+    def _list_template(self) -> str:
+        return (
+            """
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset='UTF-8'>
+  <title>未处理工单</title>
+  <style>
+    body { font-family: Arial, sans-serif; background-color: #f5f5f5; padding: 20px; }
+    .plugin-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    .plugin-card { background-color: #2d2d2d; color: #fff; border-radius: 8px; padding: 20px; display: flex; flex-direction: column; height: 100%; }
+    .plugin-title { font-size: 18px; font-weight: bold; margin-bottom: 5px; }
+    .plugin-version { display:flex; align-items:center; margin-bottom: 5px; font-size: 14px; color: #aaa; }
+    .plugin-behavior { display:flex; align-items:center; margin-bottom: 10px; font-size: 14px; color: #aaa; }
+    .plugin-description { font-size: 14px; line-height: 1.5; color: #ccc; }
+    .plugin-icon { margin-left: auto; display:flex; align-items:center; }
+    .plugin-icon i { margin-left: 10px; font-size: 20px; }
+    .sep { margin: 10px 0; height:1px; background:#555; }
+  </style>
+  </head>
+<body>
+  <div class='plugin-grid'>
+    {% for it in items %}
+    <div class='plugin-card'>
+      <div class='plugin-header' style='display:flex; align-items:center;'>
+        <div class='plugin-title'>{{ it.title }}</div>
+        <div class='plugin-icon'><i>🔄</i><i>⋮</i></div>
+      </div>
+      <div class='plugin-version'>{{ it.version }}</div>
+      <div class='plugin-behavior'>{{ it.behavior }}</div>
+      <div class='sep'></div>
+      <div class='plugin-description'>{{ it.desc }}</div>
+    </div>
+    {% endfor %}
+  </div>
+</body>
+</html>
             """
         )
