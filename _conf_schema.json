@@ -1,10 +1,4 @@
 {
-  "platform_name": {
-    "description": "消息平台名称（例如 aiocqhttp）",
-    "type": "string",
-    "hint": "用于从 QQ 号/群号拼出 UMO，典型值：aiocqhttp",
-    "obvious_hint": true
-  },
   "send_to_users": {
     "description": "是否向开发者个人(好友)列表分发",
     "type": "bool",
