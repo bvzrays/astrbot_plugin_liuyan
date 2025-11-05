@@ -111,15 +111,15 @@ class LiuyanPlugin(Star):
             yield event.plain_result("用法：/回复 工单号 内容")
             return
 
-        parts = text.split(maxsplit=1)
-        if len(parts) < 2:
-            yield event.plain_result("用法：/回复 工单号 内容")
-            return
-
-        ticket_raw, reply_text = parts[0], parts[1].strip()
-        ticket = self._normalize_ticket(ticket_raw)
-        if not ticket:
+        # 允许在整条消息中任意位置出现工单号（8位hex），例如：*回复 f1960660 你好
+        m = re.search(r"([0-9a-fA-F]{8})", text)
+        if not m:
             yield event.plain_result("工单号格式不正确，请检查后再试。")
+            return
+        ticket = m.group(1).lower()
+        reply_text = (text[m.end():] or "").strip()
+        if not reply_text:
+            yield event.plain_result("回复内容不能为空。")
             return
         async with self._lock:
             mapping = self._ticket_map.get(ticket)
