@@ -45,6 +45,14 @@ class LiuyanPlugin(Star):
         sender_id = event.get_sender_id() or ""
         group_id = event.get_group_id() or ""
         platform_name = event.get_platform_name() or ""
+        # 尝试获取群名（仅群聊时）
+        group_name = ""
+        try:
+            raw = event.message_obj.raw_message
+            if isinstance(raw, dict):
+                group_name = raw.get("group_name") or ""
+        except Exception:
+            pass
 
         # 记录映射
         async with self._lock:
@@ -53,7 +61,7 @@ class LiuyanPlugin(Star):
                 "sender_id": sender_id,
                 "sender_name": sender_name,
                 "group_id": group_id,
-                "platform": platform_name,
+            "platform": platform_name,
                 "status": "open",
                 "created_at": int(time.time())
             }
@@ -64,6 +72,7 @@ class LiuyanPlugin(Star):
             "ticket": ticket,
             "platform": platform_name,
             "group_id": group_id or "私聊",
+            "group_name": group_name,
             "sender_name": sender_name,
             "sender_id": sender_id,
             "content": message,
@@ -413,8 +422,7 @@ class LiuyanPlugin(Star):
         return (
             f"[留言工单] {data.get('ticket','')}\n"
             f"{line}\n"
-            f"来源平台：{data.get('platform','')}\n"
-            f"来源群号：{data.get('group_id','私聊')}\n"
+            f"来源群：{data.get('group_id','私聊')} {('('+data.get('group_name','')+')') if data.get('group_name') else ''}\n"
             f"来源用户：{data.get('sender_name','')} ({data.get('sender_id','')})\n"
             f"{line}\n"
             f"内容：\n{data.get('content','')}\n"
@@ -437,8 +445,7 @@ class LiuyanPlugin(Star):
         before = (
             f"[留言工单] {data.get('ticket','')}\n"
             f"{line}\n"
-            f"来源平台：{data.get('platform','')}\n"
-            f"来源群号：{data.get('group_id','私聊')}\n"
+            f"来源群：{data.get('group_id','私聊')} {('('+data.get('group_name','')+')') if data.get('group_name') else ''}\n"
             f"来源用户：{data.get('sender_name','')} ({data.get('sender_id','')})\n"
             f"{line}\n"
             f"内容：\n{data.get('content','')}\n"
@@ -487,8 +494,7 @@ class LiuyanPlugin(Star):
   </div>
 
   <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; font-size: 13px; color:#374151">
-    <div><span style="color:#6b7280">来源平台：</span>{{ platform }}</div>
-    <div><span style="color:#6b7280">来源群号：</span>{{ group_id }}</div>
+    <div><span style="color:#6b7280">来源群：</span>{{ group_id }} {% if group_name %}({{ group_name }}){% endif %}</div>
     <div><span style="color:#6b7280">来源用户：</span>{{ sender_name }}</div>
     <div><span style="color:#6b7280">来源QQ：</span>{{ sender_id }}</div>
   </div>
